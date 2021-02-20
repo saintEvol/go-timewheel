@@ -1,6 +1,7 @@
 package timewheel
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -36,6 +37,7 @@ const (
 // 计时任务句柄
 type TaskHandler struct {
 	id int
+	isComplete bool
 	timingWheel *TimeWheel
 	expirationChan chan *time.Time
 }
@@ -54,20 +56,47 @@ func (h *TaskHandler) Wait() (now *time.Time, ok bool)  {
 	return
 }
 
-func (h *TaskHandler) Complete()  {
-	h.expirationChan = nil
+// 将状态标记为已经完成,标记后,外部调用者还能获取到一次chan,之后,chan被置为nil
+func (h *TaskHandler) complete()  {
+	h.isComplete = true
+}
+
+// 定时任务完成时由时间轮调用
+func (h *TaskHandler) onComplete()  {
+	fmt.Printf("---- >>> ------ set complete: %d \r\n", h.id)
+	h.complete()
 }
 
 /*
+注意: 此接口只保证在任务完成后,还可获得一次chan,之后返回nil,以方便配合select使用
+注意: 如果直接select 此函数, 虽然任务完成后,因为会将通道设置为nil,所以Select会阻塞此通信,
+	 但是,select仍然会不停通过此函数获取通道,这里可能会造成性能损耗
 */
-func (h *TaskHandler) Chan() <- chan *time.Time{
-	return h.expirationChan
+// TODO 优化chan()性能
+func (h *TaskHandler) Chan() <- chan *time.Time {
+	ret := h.expirationChan
+	//fmt.Printf("[[][][][][][] before check: id: %d \r\n", h.id)
+	if h.isComplete {
+		// TODO TEST Chan
+		// fmt.Printf("[[][][][][][] before complete: id: %d \r\n", h.id)
+		//_, ok := <- ret
+		// TODO 期望是ok = false
+		//fmt.Printf("[][][][][][[] complete: id: %d, ok: -> %v \r\n", h.id, ok)
+		h.expirationChan = nil
+	}
+	// fmt.Printf("return chan of %d, is null: %v\r\n", h.id, ret == nil)
+	return ret
+}
+
+func (h *TaskHandler) Id() int {
+	return h.id
 }
 
 
 // 时间轮
 type TimeWheel struct {
 	nextId 		 int
+	bufferSize int
 	idLock sync.Mutex
 	tickNs       int64          // tick间隔
 	wheelSize    int            // 时间轮大小
@@ -106,7 +135,7 @@ func (wheel *TimeWheel) Start()  {
 	wheel.tickingWheel.initBuckets(wheel.wheelSize)
 
 	// TODO 控制chan的长度是否需要优化
-	wheel.controlChan = make(chan *cmd)
+	wheel.controlChan = make(chan *cmd, wheel.bufferSize)
 	wheel.ticker = time.NewTicker(time.Duration(wheel.tickNs))
 	wheel.tasks = make(map[int]*timerTaskEntry)
 
@@ -121,10 +150,19 @@ func (wheel *TimeWheel) Add(timeCb ExpirationTimeCallback) *TaskHandler {
 	}
 	now := time.Now()
 	// TODO 超时chan的长度是否需要优化
+
 	c := make(chan *time.Time)
+	entryId := wheel.genNextId()
+	handler := &TaskHandler{
+		id: entryId,
+		timingWheel: wheel,
+		expirationChan: c,
+	}
+
 	// TODO 可以考虑在时间轮协程里初始化定时任务的数据
 	entry := &timerTaskEntry {
-		id: wheel.genNextId(),
+		id: entryId,
+		onCompleteHandler: handler.onComplete,
 		expirationChan: c,
 		pre:         nil,
 		next:        nil,
@@ -138,11 +176,7 @@ func (wheel *TimeWheel) Add(timeCb ExpirationTimeCallback) *TaskHandler {
 	// 发送添加定时任务的命令
 	wheel.sendCmd(add, entry)
 
-	return &TaskHandler{
-		id:             entry.id,
-		timingWheel:    wheel,
-		expirationChan: c,
-	}
+	return handler
 }
 
 // 睡眠一段时间
@@ -152,6 +186,11 @@ func (wheel * TimeWheel) Sleep(duration time.Duration)  {
 
 func (wheel *TimeWheel) TaskCount() int {
 	return len(wheel.tasks)
+}
+
+// 设置缓冲大小, 只有在调用Start之前设置才会生效
+func (wheel *TimeWheel) WithBufferSize(size int)  {
+	wheel.bufferSize = size
 }
 
 // 组装并发送命令
@@ -275,6 +314,7 @@ type timerTaskEntry struct {
 	next *timerTaskEntry // 后续节点
 	spec *timerSpec      // 回调规范
 	triggerTime int64    // 触发时间戳, 该时间每次触发后更新, 此时间是根据tickNs下向取整后的时间
+	onCompleteHandler func() // 计时任务完成时的回调
 	expirationChan chan *time.Time // 超时频道
 }
 
@@ -608,6 +648,7 @@ func (w *overflowWheel) executeLink(tw *TimeWheel, node *timerTaskEntry, time *t
 		node.expirationChan <- time
 		if ifClose {
 			close(node.expirationChan)
+			node.onCompleteHandler()
 			node.expirationChan = nil
 		}
 	}

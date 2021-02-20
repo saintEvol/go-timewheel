@@ -9,11 +9,11 @@ import (
 
 func main() {
 	wg := sync.WaitGroup{}
-	tw := timewheel.NewTimeWheel(50 * time.Microsecond, 50)
+	tw := timewheel.NewTimeWheel(10 * time.Millisecond, 50)
 	tw.Start()
 	// time.Sleep(1 * time.Second)
 	now := time.Now()
-	tw.Sleep(1 * time.Second)
+	//tw.Sleep(1 * time.Second)
 	now1 := time.Now()
 	fmt.Printf("after sleeping, diff: %d\r\n", (now1.UnixNano() - now.UnixNano()) / int64(time.Millisecond))
 	wg.Add(2)
@@ -25,8 +25,8 @@ func main() {
 }
 
 func work(wg *sync.WaitGroup, tw *timewheel.TimeWheel)  {
-	th := tw.Add(timewheel.Tick(30, 200 * time.Microsecond))
-	th2 := tw.Add(timewheel.Tick(3000, 1000 * time.Microsecond))
+	th := tw.Add(timewheel.Repeat(2000000000, 5 * time.Second))
+	th2 := tw.Add(timewheel.Repeat(2000000000, 500 * time.Millisecond))
 	start1 := time.Now()
 	start2 := start1
 	printChan := make(chan string)
@@ -43,7 +43,7 @@ func work(wg *sync.WaitGroup, tw *timewheel.TimeWheel)  {
 		select {
 		case t, ok := <- th.Chan():
 			if !ok {
-				th.Complete()
+				fmt.Printf("done: %d\r\n", th.Id())
 				wg.Done()
 				continue
 			}
@@ -54,7 +54,7 @@ func work(wg *sync.WaitGroup, tw *timewheel.TimeWheel)  {
 			printChan <- s
 		case t, ok := <- th2.Chan():
 			if !ok {
-				th2.Complete()
+				fmt.Printf("done: %d\r\n", th2.Id())
 				wg.Done()
 				continue
 			}
@@ -64,15 +64,13 @@ func work(wg *sync.WaitGroup, tw *timewheel.TimeWheel)  {
 				t.UnixNano(), float64(start2.UnixNano() - oldStart.UnixNano()) / float64(time.Millisecond), ok)
 			printChan <- s
 		}
-
 	}
-
 }
 
 func goTimerWork(wg *sync.WaitGroup)  {
-	timer := time.NewTicker(2 * time.Millisecond)
+	timer := time.NewTicker(50 * time.Microsecond)
 
-	start := time.Now()
+	//start := time.Now()
 	printChan := make(chan string)
 	go func(c <- chan string) {
 		for true {
@@ -83,16 +81,16 @@ func goTimerWork(wg *sync.WaitGroup)  {
 		}
 	}(printChan)
 
-	for i := 0; i < 60; i +=1 {
-		t, ok := <- timer.C
+	for i := 0; i < 600000000000; i +=1 {
+		_, ok := <- timer.C
 		if !ok {
 			break
 		}
-		oldStart := start
-		start = time.Now()
-		s := fmt.Sprintf("<><><><><><><><><><>timeout, t: %d, diff:%f ms, ok:%s\r\n",
-			t.UnixNano(), float64(start.UnixNano() - oldStart.UnixNano()) / float64(time.Millisecond), ok)
-		printChan <- s
+		//oldStart := start
+		//start = time.Now()
+		//s := fmt.Sprintf("<><><><><><><><><><>timeout, t: %d, diff:%f ms, ok:%s\r\n",
+		//	t.UnixNano(), float64(start.UnixNano() - oldStart.UnixNano()) / float64(time.Millisecond), ok)
+		//printChan <- s
 	}
 	wg.Done()
 }
