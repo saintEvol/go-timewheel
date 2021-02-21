@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"go-timewheel/timewheel"
+	"github.com/saintEvol/go-timewheel/timewheel"
 	"sync"
 	"time"
 )
@@ -39,6 +39,7 @@ func work(wg *sync.WaitGroup, tw *timewheel.TimeWheel)  {
 		}
 	}(printChan)
 
+	count := 0
 	for {
 		select {
 		case t, ok := <- th.Chan():
@@ -47,6 +48,7 @@ func work(wg *sync.WaitGroup, tw *timewheel.TimeWheel)  {
 				wg.Done()
 				continue
 			}
+			count +=1
 			oldStart := start1
 			start1 = time.Now()
 			s := fmt.Sprintf("<><><><><><><><><><>timeout, t: %d, diff:%f ms, ok:%s\r\n",
@@ -58,11 +60,18 @@ func work(wg *sync.WaitGroup, tw *timewheel.TimeWheel)  {
 				wg.Done()
 				continue
 			}
+			count +=1
 			oldStart := start2
 			start2 = time.Now()
 			s := fmt.Sprintf("--------------------timeout, t: %d, diff:%f ms, ok:%s\r\n",
 				t.UnixNano(), float64(start2.UnixNano() - oldStart.UnixNano()) / float64(time.Millisecond), ok)
 			printChan <- s
+		}
+		if count >= 20 {
+			tw.Stop()
+			time.Sleep(2 * time.Second)
+			wg.Done()
+			wg.Done()
 		}
 	}
 }

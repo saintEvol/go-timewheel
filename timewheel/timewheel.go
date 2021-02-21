@@ -142,6 +142,12 @@ func (wheel *TimeWheel) Start()  {
 	wheel.loopAsync()
 }
 
+// 停止定时器
+// todo 非线程安全
+func (wheel *TimeWheel) Stop()  {
+	wheel.sendCmd(stop, nil)
+}
+
 // 添加一个定时任务, 添加前请确保该时间轮已经调用了Start,否则会报错
 func (wheel *TimeWheel) Add(timeCb ExpirationTimeCallback) *TaskHandler {
 	if wheel.ticker == nil || wheel.tickingWheel == nil || wheel.controlChan == nil {
@@ -243,7 +249,16 @@ func (wheel *TimeWheel) onTick(now *time.Time)  {
 func (wheel *TimeWheel) onCmd(cmd *cmd)  {
 	switch cmd.code {
 	case stop:
-		// TODO stop cmd treate
+		wheel.ticker.Stop()
+		// 不将ticker置空,防止有地方还在访问
+		//wheel.ticker = nil
+		close(wheel.controlChan)
+		wheel.controlChan = nil
+		// 释放所有时间轮
+		if wheel.tickingWheel != nil {
+			wheel.tickingWheel.dispose()
+		}
+		wheel.tasks = nil
 	case add:
 		entry := cmd.data.(*timerTaskEntry)
 		// 因为添加任务时需要返回任务ID,所以已经在添加时生成了ID
@@ -721,6 +736,15 @@ func (w *overflowWheel) calculateCurrentBucket() int {
 
 func (w *overflowWheel) calculateBucketId(ns int64) int {
 	return int(ns / w.tickNs % int64(len(w.buckets)))
+}
+
+func (w *overflowWheel) dispose()  {
+	if w.next != nil {
+		w.next.dispose()
+	}
+	w.pre = nil
+	w.next = nil
+	w.buckets = nil
 }
 
 func uniformNs(ns int64, tickNs int64) int64 {
