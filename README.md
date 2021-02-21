@@ -29,7 +29,7 @@ th.Remove()
 th1 = timewheel.Add(timewheel.Repeat(10, 100 * time.Millisecond))
 for {
 	select {
-	case _, _ = <- the.Chan
+	case _, _ = <- the.Chan()
 	    fmt.Print("tick")
     }
 }
