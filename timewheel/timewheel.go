@@ -1,7 +1,6 @@
 package timewheel
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -63,7 +62,7 @@ func (h *TaskHandler) complete()  {
 
 // 定时任务完成时由时间轮调用
 func (h *TaskHandler) onComplete()  {
-	fmt.Printf("---- >>> ------ set complete: %d \r\n", h.id)
+	//fmt.Printf("---- >>> ------ set complete: %d \r\n", h.id)
 	h.complete()
 }
 
